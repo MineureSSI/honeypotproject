@@ -1,0 +1,7 @@
+Pour tester le arp spoofing on propose d'utiliser l'outil "dsniff"
+qui permet de faire une attaque man-in-the-middle. C'est ce qu'on a
+réussi à faire en utilisant une machine windows comme target, et une
+machine virtuelle ubuntu comme attacker (man-in-the-middle entre le
+target et le local gateway).
+Nous pouvons observer dans les captures d'écrans que l'adresse mac de
+l'attaquant a bien été liée à l'adresse ip du local gateway.
