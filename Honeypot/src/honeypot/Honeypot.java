@@ -129,25 +129,35 @@ public class Honeypot {
 
             //Create packet handler which will receive packets
             PcapPacketHandler<String> jpacketHandler = new PcapPacketHandler<String>() {
-                Ip4 gateway;
                 Arp arp = new Arp();
-                //Tcp tcp = new Tcp();
-                //Udp udp = new Udp();
+                Tcp tcp = new Tcp();
+                Udp udp = new Udp();
                 Ip4 ip4 = new Ip4();
                 
-               
-                public void nextPacket(PcapPacket packet, String user) {
-                    //Here i am capturing the ARP,TCP and UDP packets,you can capture any packet that you want by just changing the below if condition
-                    //System.out.println("distinction des packets");
+                public void nextPacket(PcapPacket packet, String user) {   
+                    if(packet.hasHeader(ip4))
+                        testWhitelist(packet);
+                    
+                    if (packet.hasHeader(arp) && arp.operationEnum() == Arp.OpCode.REPLY) {
+                        testSpoofing(arp);
+                    }
+                                        
+                    if (packet.hasHeader(tcp) && packet.hasHeader(ip4)) {
+                        testPortScan(tcp);
+                    }
 
+                    // Capturing packet to the output
+                    //printPacketInfo(packet);
+                }
+                
+                
+                public void printPacketInfo(PcapPacket packet){
                     if (packet.hasHeader(arp)) {
                         System.out.println("--> arp packet detected");
                         System.out.println("Hardware type" + arp.hardwareType());
                         System.out.println("Protocol type" + arp.protocolType());
-                        //System.out.println("Packet:" + arp.getPacket());
-                        System.out.println();
-                        
-                        testSpoofing(arp);
+                        System.out.println("Packet:" + arp.getPacket());
+                        System.out.println();                        
                     }
 
                     if (packet.hasHeader(Tcp.ID) && packet.hasHeader(ip4)) {
@@ -191,13 +201,57 @@ public class Honeypot {
     public void testSpoofing(Arp arp){
         try {
             if(getArpSenderIP(arp).equals(gatewayIpAddress) && ! getArpSenderMAC(arp).equals(gatewayMacAddress)){
-                System.out.println("spoofing Detected");
+                System.out.println("spoofing attempt detected");
             }
         } catch (IOException ex) {
             Logger.getLogger(Honeypot.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
-    
+
+
+    public void testPortScan(Tcp tcp){
+        //we should be receiving only syn S packet
+        if(tcp.flags_SYN() && gatewayIpAddress.equals(tcp.source())){
+            System.out.println("port scan attempt detected");
+        }
+    }
+
+    public void testWhitelist(PcapPacket packet){
+        Arp arp = new Arp();
+        Udp udp = new Udp();
+        if (packet.hasHeader(udp)) {
+            //we shouldnt be getting udp packet except from dns server
+            if(!isDns(packet)){
+                System.out.println("suspicious udp packet detected");
+                //System.out.println(packet.toString());
+            }
+        }
+
+        //we shouldnt get any arp request
+        if (packet.hasHeader(arp) && arp.operationEnum() != Arp.OpCode.REPLY) {
+            try {
+                if(!getArpSenderIP(arp).equals(gatewayIpAddress)){
+                    System.out.println("suspicious arp packet detected");
+                }
+            } catch (IOException ex) {
+                Logger.getLogger(Honeypot.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+
+    }
+
+    private boolean isDns(final PcapPacket packet) {
+        if (packet.hasHeader(Udp.ID)) {
+            final Udp udp = packet.getHeader(new Udp());
+            return (udp.source() == 53 || udp.destination() == 53);
+        }
+        else if (packet.hasHeader(Tcp.ID)) {
+            final Tcp tcp = packet.getHeader(new Tcp());
+            return (tcp.source() == 53 || tcp.destination() == 53);
+        }
+        return false;
+    }
+
     public String getArpSenderIP(Arp arp) throws IOException{
         BufferedReader output = new BufferedReader(new StringReader(arp.getPacket().toString()));
 
@@ -214,7 +268,7 @@ public class Honeypot {
         st.nextToken();
         return st.nextToken().trim();
     }
-    
+
     public String getArpSenderMAC(Arp arp) throws IOException {
         BufferedReader output = new BufferedReader(new StringReader(arp.getPacket().toString()));
 
@@ -232,8 +286,10 @@ public class Honeypot {
         return st.nextToken().trim();
     }
     
+    
     public static void main(String[] args) throws Exception {
         Honeypot honeypot = new Honeypot();
         honeypot.start();
     }
 }
+
